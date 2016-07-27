@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 
 #define ExportPath "/sys/class/gpio/export"
 #define UnexportPath "/sys/class/gpio/unexport"
@@ -17,10 +19,12 @@ void FreeGPIO(int);
 void CreateGPIO(int ,int );
 void WriteGPIO(int ,int );
 int ReadGPIO(int);
-void PWM_Create(int ,int ); // void PWM_Control(int pwmchip,int Period,int DutyCycle,int Active)
-void PWM_Control(int,int ,int ,int );
+void PWM_Create(int ,int ); 
+void PWM_Control(int,int ,int ,int ); // void PWM_Control(int pwmchip,int Period,int DutyCycle,int Active)
 void Motor_Control(int,int,int,int);
 int Puls_Count(int,int);
+float Distance(int,int);
+int delay(int us);
 
 const int PWM_Period = 1000; // 1Khz
 const int M_L = 1; // Motor Left
@@ -32,20 +36,28 @@ int init = 0;
 
 
 //Main Program
-int main()
-{
+int main(){
 	//Initialize
 	if (init == 0){
 
 		FreeGPIO(171);
-		CreateGPIO(171,0);
+		CreateGPIO(171,1);
 		
 		init = 1;
 	}
-	
+
 	while(1){
 
-		printf("%d\n",Puls_Count(171,0));
+		if(delay(5000000)){
+
+			WriteGPIO(171,1);
+
+		}else{
+
+			WriteGPIO(171,0);
+			sleep(1);
+		}
+	
 	}
 
 	return 0;
@@ -331,4 +343,60 @@ int Puls_Count(int Pin,int reset){
 	}
 
 	return count;
+}
+//---------------Distance------------------------------
+float Distance(int Trigger,int Echo){
+
+	clock_t pulse_start;
+	float pulse_duration = 0 , distance = 0;
+
+	WriteGPIO(Trigger,0);
+
+	while(delay(100000)){}
+
+
+	WriteGPIO(Trigger,1);
+	while(delay(10)){}
+	WriteGPIO(Trigger,0);
+
+
+	while(ReadGPIO(Echo) == 0){} // Wait for Echo start
+
+	pulse_start = clock();
+
+	while(ReadGPIO(Echo) == 1){} // Wait for Echo end
+
+	pulse_duration = clock()- pulse_start;
+
+	pulse_duration = pulse_duration/CLOCKS_PER_SEC; // convert to Second
+
+	distance = pulse_duration x 17150 ; // in cm
+
+	return distance;
+}
+//---------------Delay in micro second------------------------------
+int delay(int us){
+	
+	static clock_t start_t;
+	static int micro_s = 0, init =0, state = 0;
+
+
+	if(init == 0){
+		start_t = clock(); // set current time
+		init = 1;
+	}
+
+	micro_s  = (((float)(clock()- start_t))/CLOCKS_PER_SEC)*1000000; // Delta time , convert to us
+
+	if(micro_s >= us){
+		init = 0;
+		state = 0;
+
+	}else{
+
+		state = 1;
+		
+	}
+
+	return state;
 }
