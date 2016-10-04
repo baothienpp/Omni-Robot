@@ -113,7 +113,7 @@ int main(){
 
 			//Remove Encoder Driver (if existed)
 			system("rmmod encoder_driver");
-			
+
 			//Install Encoder Driver
 			system("insmod encoder_driver.ko");
 
@@ -127,8 +127,9 @@ int main(){
 	}
 
 	while(1){
-		printf("%d\n",GetEncoder() );
+		GetEncoder();
 	}
+
 	return 0;
 
 }
@@ -153,7 +154,7 @@ int GetEncoder(){
 
 	static int fd =0;
 	int rc = 0;
-	char buffer[256];
+	char buffer[10];
 	int result = 0;
 	
 	//Open "/dev/encoder"
@@ -163,9 +164,9 @@ int GetEncoder(){
 
 
 	if(fd > 0 ) {
-		rc = read(fd,buffer,256);
+		rc = read(fd,buffer,10);
 		result = atoi(buffer); // convert str to int
-		printf("%s \n",buffer );
+		printf("%s\n",buffer);
 	}
 
 	if(rc > 0){
