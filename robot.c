@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include <errno.h>
 
 
 
@@ -29,16 +30,19 @@ int Puls_Count(int,int);
 float Distance(int,int);
 int udelay(int us);
 void Motor_Brake();
-void Go_Straight(int,int);
+int Go_Straight(int,int,int); //(int speed,int distance,int direction)
+void Go_Straight_No_Distance(int,int); //(int speed,int direction)
 void Motor_Shutdown(int );
-void Rotate(int,int);
-float Puls2Distance(int );
-float Puls2Degree(int );
+int Rotate(int,int,int); //(int speed,int degree,int direction)
+float Puls2Distance(int);
+float Puls2Angle(int);
 int GetEncoder();
+void ResetEncoder();
 
 
-const int PulsRotateDef = 55; // 1 Wheel rotation = x puls , 30 cm
+const int PulsRotateDef = 160; // 1 Wheel rotation = 160 puls = 15 cm
 const int PWM_Period = 1000; // 1Khz
+
 const int MLeftSpeed = 4; // SD1_CMD pwm4
 const int MLeftForward = 160; // CSI0_DAT14
 const int MLeftBackward = 161; //CSI0_DAT15
@@ -56,12 +60,18 @@ const int MLeftEnc = 205; //GPIO_18
 const int MRightEnc = 3; //GPIO_3
 const int MBackEnc = 204; //GPIO_17
 
+const int MotorSpeedSlow = 5;
+const int MotorSpeedModerate = 20; 
+const int MotorSpeedFast = 50;
 
-const int Pin = 1; 
-int MLeftEnc_R;
+const int StopDistance = 20;
+const int BackupDistance = 8;
+
 int init = 0;
-int point = 0;
-int abstand = 0;
+int best_angle = 0, angle = 0,scan_angle =0,best_angle_bh =0, best_disc_bh =0; // Angle Values 
+float best_disc = 0,distance = 0; // Distance Values
+int rotate_complete = 0,go_complete=0,scan_active = 1,go_active = 1; // Boolean Variables
+
 
 //Main Program
 int main(){
@@ -126,35 +136,175 @@ int main(){
 		init = 1;
 	}
 
-	while(1){
-		GetEncoder();
+	while(1){ // LOOP Program
+
+		//SCAN SPACE FOR BEST DISTANCE
+		if(scan_active == 1){
+
+			while(rotate_complete == 0){
+				rotate_complete = Rotate(MotorSpeedModerate,90,1);
+			}
+
+			for (scan_angle = 0; scan_angle <= 180; scan_angle = scan_angle + 45){
+				if(rotate_complete == 1){
+
+					distance = Distance(Trigger,Echo);
+					printf(" %0.2f , I = %d \n",distance,scan_angle);
+
+					if (distance > best_disc){
+						best_disc = distance;
+						best_angle = scan_angle;
+					}
+
+					rotate_complete = 0;				
+				}
+
+				if(scan_angle > 0){
+					while(rotate_complete == 0){
+						rotate_complete = Rotate(MotorSpeedSlow,45,0);
+					}					
+				}
+				// scan_angle = scan_angle + 45;	
+				while(udelay(50000)){}
+			
+			}
+
+
+			if (best_disc < 100){ // Scan behind
+				printf("Scan Behind");
+
+				for (scan_angle = 0; scan_angle <= 180; scan_angle = scan_angle + 45){
+					if(rotate_complete == 1){
+
+						distance = Distance(Trigger,Echo);
+						printf(" %0.2f , I = %d \n",distance,(scan_angle*(-1)));
+
+						if (distance > best_disc){
+							best_disc_bh = distance;
+							best_angle_bh = scan_angle;
+						}
+
+						rotate_complete = 0;				
+					}
+
+					if(scan_angle > 0){
+						while(rotate_complete == 0){
+							rotate_complete = Rotate(MotorSpeedSlow,45,0);
+						}					
+					}
+
+					// scan_angle = scan_angle + 45;	
+					while(udelay(50000)){}					
+				
+				}				
+			}
+
+			if(best_disc_bh > best_disc){
+
+				while(udelay(50000)){}	
+
+				while(rotate_complete == 0){
+					rotate_complete = Rotate(MotorSpeedModerate,best_angle_bh,1);
+
+				}
+
+			}else{
+
+				if(best_disc_bh > 0 ){
+
+					while(udelay(50000)){}	
+
+					while(rotate_complete == 0){
+						rotate_complete = Rotate(MotorSpeedModerate,best_angle,0);	
+					}
+				}else{
+
+					while(udelay(50000)){}	
+
+					while(rotate_complete == 0){
+						angle = 180 - best_angle;
+						rotate_complete = Rotate(MotorSpeedModerate,angle,1);		
+
+				    }
+				}		
+			}
+
+
+			if(rotate_complete == 1){
+				scan_angle =0;
+				scan_active =0;
+				go_active = 1;	
+				rotate_complete = 0;			
+			}
+	
+		}
+
+		//GO TO THE DIRECTION WITH BEST DISTANCE
+		if(go_active == 1){
+
+			distance = Distance(Trigger,Echo);
+			//printf(" Distance %0.2f \n",distance);
+			
+			
+			if(distance >= StopDistance){
+
+				//printf("Go Forward\n");
+				Go_Straight_No_Distance(MotorSpeedModerate,0);		
+
+			}else{
+				Motor_Brake();
+				scan_active = 1;
+				go_active = 0;		
+				ResetEncoder();
+				while(udelay(100000)){}			
+			}
+
+
+			if(distance < BackupDistance) {
+
+				while(go_complete == 0){
+					go_complete = Go_Straight(MotorSpeedModerate,(int)(BackupDistance*2),1);
+				}
+				
+				if (go_complete == 1){
+					Motor_Brake();
+					go_complete = 0;
+					scan_active = 1;
+					go_active = 0;
+					ResetEncoder();
+				}
+			}
+
+		}
+
 	}
 
 	return 0;
 
 }
 //---------------Puls2Distance------------------------------
-float Puls2Distance(int Puls){
+float Puls2Distance(int puls){
+	// Distance in CM
 	float distance;
 
-	distance = (Puls*0.486) - 1.3;
+	distance = (puls*15)/(PulsRotateDef*0.8125);
 
 	return distance;
 }
 //---------------Puls2Distance------------------------------
-float Puls2Degree(int Puls){
+float Puls2Angle(int Puls){
 	float degree;
 
-	degree = (Puls*1.81) - 7.3;
+	degree = (Puls*90)/180;
 
 	return degree;
 }
 //---------------GetEncoder------------------------------
 int GetEncoder(){
 
-	static int fd =0;
+	int fd =0;
 	int rc = 0;
-	char buffer[10];
+	char buffer[256];
 	int result = 0;
 	
 	//Open "/dev/encoder"
@@ -164,9 +314,9 @@ int GetEncoder(){
 
 
 	if(fd > 0 ) {
-		rc = read(fd,buffer,10);
+		rc = read(fd,buffer,256);
 		result = atoi(buffer); // convert str to int
-		printf("%s\n",buffer);
+		//printf("Read Error %s\n", strerror(errno));
 	}
 
 	if(rc > 0){
@@ -175,11 +325,33 @@ int GetEncoder(){
 
 	return result;
 }
+//---------------ResetEncoder------------------------------
+void ResetEncoder(){
+	int fd =0 ;
+	int rc = 0;
+	char buffer[10];
+	
+	//Open "/dev/encoder"
+
+	fd = open(EncoderPath, O_WRONLY );
+	
+	if(fd > 0 ) {
+		sprintf(buffer,"%d",1);
+		rc = write(fd,buffer,strlen(buffer));
+	}
+
+	if(rc > 0){
+		close(fd);
+	}
+
+
+}
 //---------------Motor_Brake------------------------------
 void Motor_Brake(){
 			Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,100,2,1);
 			Motor_Control(MRightSpeed,MRightForward,MRightBackward,100,2,1);
-			Motor_Control(MBackSpeed,MBackForward,MBackBackward,100,2,1);		
+			Motor_Control(MBackSpeed,MBackForward,MBackBackward,100,2,1);
+			ResetEncoder();		
 }
 
 //---------------Motor_Shutdown------------------------------
@@ -199,7 +371,30 @@ void Motor_Shutdown(int motors){
 }
 
 //---------------Go_Straight------------------------------
-void Go_Straight(int direction,int speed){
+int Go_Straight(int speed,int distance,int direction){
+	//Direction 0 - Forward
+	//			1 - Backward
+
+	int complete = 0;
+
+	if(Puls2Distance(GetEncoder()) <= distance ){
+		if (direction == 0){
+			Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,1,1);
+			Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,0,1);
+		}else{
+			Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,0,1);
+			Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,1,1);
+		}			
+	}else{
+		Motor_Brake();
+		complete = 1;
+	}
+
+	return complete;
+	
+}
+//---------------Go_Straight_No_Distance------------------------------
+void Go_Straight_No_Distance(int speed,int direction){
 	//Direction 0 - Forward
 	//			1 - Backward
 	if (direction == 0){
@@ -208,21 +403,32 @@ void Go_Straight(int direction,int speed){
 	}else{
 		Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,0,1);
 		Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,1,1);
-	}		
+	}			
+	
 }
 //---------------Rotate------------------------------
-void Rotate(int direction,int speed){
+int Rotate(int speed,int degree,int direction){
 	//Direction 1 - Clockwise
 	//			0 - Counterclockwise
-	if (direction == 0){
-			Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,1,1);
-			Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,1,1);
-			Motor_Control(MBackSpeed,MBackForward,MBackBackward,speed,1,1);
+
+	int complete = 0;
+
+	if(Puls2Angle(GetEncoder()) <= degree){
+		if (direction == 0){
+				Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,1,1);
+				Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,1,1);
+				Motor_Control(MBackSpeed,MBackForward,MBackBackward,speed,1,1);
+		}else{
+				Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,0,1);
+				Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,0,1);
+				Motor_Control(MBackSpeed,MBackForward,MBackBackward,speed,0,1);
+		}			
 	}else{
-			Motor_Control(MLeftSpeed,MLeftForward,MLeftBackward,speed,0,1);
-			Motor_Control(MRightSpeed,MRightForward,MRightBackward,speed,0,1);
-			Motor_Control(MBackSpeed,MBackForward,MBackBackward,speed,0,1);
-	}				
+		Motor_Brake();
+		complete = 1;
+	}
+	
+	return complete;		
 }
 //---------------Pin2Path------------------------------
 char *Pin2Path(int input,int subfolder){
@@ -326,7 +532,7 @@ int ReadGPIO(int Pin){
 	//		 0 - LOW
 
 	
-	static int fd =0;
+	int fd =0;
 	int rc = 0;
 	char buffer[10];
 	int result = 0;
@@ -547,14 +753,14 @@ float Distance(int Trigger,int Echo){
 
 	WriteGPIO(Trigger,0);
 
-	while(udelay(100000)){}
-
+	while(udelay(10000)){}
 
 	WriteGPIO(Trigger,1);
-	printf("Trigger On\n" );
+	// printf("Trigger On\n" );
 	while(udelay(10)){}
+
 	WriteGPIO(Trigger,0);
-	printf("Echo On\n");
+	// printf("Echo On\n");
 
 
 	while(ReadGPIO(Echo) == 1){} // Wait for Echo start
@@ -570,8 +776,17 @@ float Distance(int Trigger,int Echo){
 
 	distance = pulse_duration * 17150; // in cm
 
+	if (distance >= 400){
+		WriteGPIO(Trigger,1);
+		while(udelay(12)){}
+		WriteGPIO(Trigger,0);
+	}
 
-	printf("%0.2f CM \n",distance );
+	if (distance >= 100){ // >= 25ms
+		distance = 100;
+	}
+
+	// printf("%0.2f CM \n",distance );
 	return distance;
 }
 //---------------Delay in micro second------------------------------
