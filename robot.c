@@ -67,7 +67,7 @@ const int MotorSpeedFast = 50;
 const int StopDistance = 20;
 const int BackupDistance = 8;
 
-int init = 0;
+int init = 0,program_active = 0;
 int best_angle = 0, angle = 0,scan_angle =0,best_angle_bh =0, best_disc_bh =0; // Angle Values 
 float best_disc = 0,distance = 0; // Distance Values
 int rotate_complete = 0,go_complete=0,scan_active = 1,go_active = 1; // Boolean Variables
@@ -136,14 +136,22 @@ int main(){
 		init = 1;
 	}
 
+	while(Distance(Trigger,Echo) >= 3){
+	} // Use to active program
+
 	while(1){ // LOOP Program
+
 
 		//SCAN SPACE FOR BEST DISTANCE
 		if(scan_active == 1){
 
+			best_disc = 0;
+			best_disc_bh = 0;
+
 			while(rotate_complete == 0){
 				rotate_complete = Rotate(MotorSpeedModerate,90,1);
 			}
+
 
 			for (scan_angle = 0; scan_angle <= 180; scan_angle = scan_angle + 45){
 				if(rotate_complete == 1){
@@ -164,13 +172,14 @@ int main(){
 						rotate_complete = Rotate(MotorSpeedSlow,45,0);
 					}					
 				}
-				// scan_angle = scan_angle + 45;	
+	
 				while(udelay(50000)){}
 			
 			}
 
-
-			if (best_disc < 100){ // Scan behind
+			printf("Best distance %0.2f \n",best_disc);
+			// Scan behind
+			if (best_disc < 100){ 
 				printf("Scan Behind");
 
 				for (scan_angle = 0; scan_angle <= 180; scan_angle = scan_angle + 45){
@@ -199,12 +208,13 @@ int main(){
 				}				
 			}
 
+			//Compare Angle from both directions
 			if(best_disc_bh > best_disc){
 
 				while(udelay(50000)){}	
 
 				while(rotate_complete == 0){
-					rotate_complete = Rotate(MotorSpeedModerate,best_angle_bh,1);
+					rotate_complete = Rotate(MotorSpeedModerate,180-best_angle_bh,1);
 
 				}
 
